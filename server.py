@@ -1,12 +1,11 @@
-
-
-from flask import Flask, request, jsonify, render_template_string, redirect, url_for
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 import numpy as np
 
 app = Flask(__name__)
 
 # --- Data Storage ---
 turtles = {}
+world_blocks = {} # New: To store scanned blocks
 next_id = 1
 
 # --- Constants ---
@@ -17,96 +16,36 @@ DIRECTIONS = {
     3: "West"
 }
 
-# --- HTML Template ---
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Turtle C&C v2.5 - Home Command</title>
-    <style>
-        body { font-family: monospace; background-color: #1a1a1a; color: #f0f0f0; margin: 20px; }
-        .container { display: flex; flex-wrap: wrap; gap: 20px; }
-        .turtle-card { border: 1px solid #444; border-radius: 5px; padding: 15px; background-color: #2a2a2a; min-width: 350px; }
-        .interface-section { background-color: #2a2a2a; border: 1px solid #444; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
-        h1, h2 { color: #00ff7f; }
-        h3 { border-bottom: 1px solid #444; padding-bottom: 5px; }
-        label { display: block; margin-top: 10px; color: #ccc; }
-        input[type="text"], input[type="number"], input[type="submit"], select, button {
-            font-size: 1em; padding: 8px; margin-top: 5px;
-            background-color: #333; border: 1px solid #555; color: #f0f0f0; border-radius: 3px;
-        }
-        input[type="submit"], button { cursor: pointer; font-weight: bold; }
-        input[type="submit"] { background-color: #008f4f; }
-        input[type="submit"]:hover { background-color: #00ff7f; }
-        .clear-btn { background-color: #ff4d4d; }
-        .home-btn { background-color: #4d7cff; }
-        .status-grid { display: grid; grid-template-columns: auto 1fr; gap: 5px 10px; }
-        .status-grid dt { font-weight: bold; color: #00ff7f; }
-        .command-queue { list-style-type: decimal; padding-left: 20px; max-height: 100px; overflow-y: auto; background: #111; padding: 10px; border-radius: 3px; }
-        hr { border-color: #444; margin: 20px 0; }
-        .button-group form { display: inline-block; margin-right: 10px; }
-    </style>
-</head>
-<body>
-    <h1>Turtle C&C Server v2.5</h1>
-    <div class="interface-section">
-        <h2>Control Panel</h2>
-        <form method="post" action="/add_commands">
-            <h3>Queue Commands</h3>
-            <label for="turtle_id">Turtle ID:</label>
-            <input type="text" id="turtle_id" name="turtle_id" required>
-            <label for="commands">Commands (comma-separated):</label>
-            <input type="text" id="commands" name="commands" placeholder="e.g., home, goto 5 10 15, sethome 0 0 0 0" required>
-            <input type="submit" value="Queue Commands">
-        </form>
-    </div>
-    <h2>Managed Turtles</h2>
-    <div class="container">
-    {% for id, data in turtles.items() %}
-        <div class="turtle-card">
-            <h3>Turtle #{{ id }}</h3>
-            <dl class="status-grid">
-                <dt>Location:</dt>  <dd>X:{{ data.status.get('x', '?') }}, Y:{{ data.status.get('y', '?') }}, Z:{{ data.status.get('z', '?') }}</dd>
-                <dt>Direction:</dt> <dd>{{ DIRECTIONS.get(data.status.dir, 'Unknown') }} ({{ data.status.get('dir', '?') }})</dd>
-                <dt>Fuel:</dt>      <dd>{{ data.status.get('fuel', 'N/A') }}</dd>
-                <dt>Inventory:</dt> <dd>{{ data.status.get('inventory', {}) | tojson }}</dd>
-            </dl>
-            <h4>Command Queue:</h4>
-            <ul class="command-queue">
-            {% for cmd in data.queue %}
-                <li>{{ cmd }}</li>
-            {% else %}
-                <li>Empty</li>
-            {% endfor %}
-            </ul>
-            <div class="button-group" style="margin-top: 10px;">
-                <!-- MODIFIED: "Send Home" button added -->
-                <form method="post" action="/add_commands">
-                    <input type="hidden" name="turtle_id" value="{{ id }}">
-                    <input type="hidden" name="commands" value="home">
-                    <button type="submit" class="home-btn">Send Home</button>
-                </form>
-                <form method="post" action="/clear_queue">
-                    <input type="hidden" name="turtle_id" value="{{ id }}">
-                    <button type="submit" class="clear-btn">Clear Queue</button>
-                </form>
-            </div>
-        </div>
-    {% endfor %}
-    </div>
-</body>
-</html>
-"""
+def get_color_for_block(block_name):
+    if 'grass' in block_name:
+        return "#55a630"
+    elif 'ore' in block_name:
+        return "#b8860b"
+    elif 'dirt' in block_name:
+        return "#967969"
+    else:
+        return "#808080"
+        
+    
+        
+
 
 def response_to_alone_turtle():
     return jsonify({"error": "re-register"}), 200
 
-def render_main_page():
-    return render_template_string(HTML_TEMPLATE, turtles=turtles, DIRECTIONS=DIRECTIONS)
-
 @app.route('/')
 def index():
-    return render_main_page()
+    return render_template('index.html', turtles=turtles, DIRECTIONS=DIRECTIONS)
+
+# New: Route for the 3D world view
+@app.route('/world')
+def world_view():
+    return render_template('world.html')
+
+# New: Endpoint to get world data
+@app.route('/world_data')
+def world_data():
+    return jsonify({"turtles": turtles, "blocks": world_blocks})
 
 @app.route('/register', methods=['POST'])
 def register_turtle():
@@ -141,34 +80,22 @@ def scan_report(turtle_id):
         return response_to_alone_turtle()
 
     scan_data = request.json
-    print("Received scan data:")
     print(scan_data)
 
-    # Extract block locations and convert to a NumPy array
-    block_locations = []
     if 'blocks' in scan_data and isinstance(scan_data['blocks'], dict):
-        for loc_str in scan_data['blocks'].keys():
+        for loc_str, block_name in scan_data['blocks'].items(): # Renamed 'block_info' to 'block_name' for clarity
             try:
-                # Split the string 'x,y,z' into a list of strings ['x', 'y', 'z']
-                # and convert each to an integer.
                 coords = [int(coord) for coord in loc_str.split(',')]
-                block_locations.append(coords)
+                block_key = f"{coords[0]},{coords[1]},{coords[2]}"
+
+                # --- CORRECTED LINE ---
+                world_blocks[block_key] = {"x": coords[0], "y": coords[1], "z": coords[2], "name": block_name, "color": get_color_for_block(block_name)}
+
             except ValueError:
-                # Handle cases where a key is not in the expected format
                 print(f"Could not parse location: {loc_str}")
 
-
-    # Convert the list of locations to a NumPy array
-    block_locations_np = np.array(block_locations)
-
-    # You can now use this NumPy array for further processing or storage
-    print("\nBlock locations as NumPy array:")
-    print(block_locations_np)
-
-    # Here you could save the array to a file, for example:
-    # np.save(f'{turtle_id}_scan.npy', block_locations_np)
-
     return jsonify({"status": "ok", "message": "Scan data processed."})
+
 
 @app.route('/update/<turtle_id>', methods=['POST'])
 def update_status(turtle_id):
@@ -196,4 +123,3 @@ def clear_queue():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
-

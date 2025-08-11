@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Turtle World</title>
+    <style>
+        body { margin: 0; background-color: #1a1a1a; }
+        canvas { display: block; }
+        .home-link { position: absolute; top: 10px; left: 10px; color: #00ff7f; text-decoration: none; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-link">Back to Control Panel</a>
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls;
+        const turtleObjects = new THREE.Group();
+        const blockObjects = new THREE.Group();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+            scene.fog = new THREE.Fog(0x1a1a1a, 50, 200);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(20, 20, 20);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(50, 50, 50);
+            scene.add(directionalLight);
+            
+            const gridHelper = new THREE.GridHelper(200, 200);
+            scene.add(gridHelper);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            
+            scene.add(turtleObjects);
+            scene.add(blockObjects);
+
+            window.addEventListener('resize', onWindowResize, false);
+
+            fetchWorldData();
+            animate();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function fetchWorldData() {
+            fetch('/world_data')
+                .then(response => response.json())
+                .then(data => {
+                    // LOG 1: See all the data received from the server
+                    console.log("Fetched Data:", data); 
+
+                    updateTurtles(data.turtles);
+                    updateBlocks(data.blocks);
+                });
+            
+            // We will temporarily stop polling to make the log cleaner
+            // setTimeout(fetchWorldData, 5000); 
+        }
+
+        function updateBlocks(blocks) {
+            // LOG 2: See the blocks object being passed to this function
+            console.log("Updating blocks with:", blocks);
+
+            blockObjects.clear();
+            const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+            for (const id in blocks) {
+                const blockData = blocks[id];
+                // LOG 3: See each individual block's data as it's being rendered
+                console.log("Creating block at:", blockData.x, blockData.y, blockData.z); 
+
+                const blockMaterial = new THREE.MeshPhongMaterial({
+                    color: blockData.color || '#808080',
+                    transparent: true,
+                    opacity: 0.9
+                });
+                const blockMesh = new THREE.Mesh(blockGeometry, blockMaterial);
+                blockMesh.position.set(blockData.x, blockData.y, blockData.z);
+                
+                const edges = new THREE.EdgesGeometry(blockGeometry);
+                const lineMaterial = new THREE.LineBasicMaterial({ color: 0xf000000 });
+                const wireframe = new THREE.LineSegments(edges, lineMaterial);
+                wireframe.position.set(blockData.x, blockData.y, blockData.z);
+
+                blockObjects.add(blockMesh);
+                //blockObjects.add(wireframe);
+            }
+        }
+
+        function updateTurtles(turtles) {
+            turtleObjects.clear();
+            const turtleGeometry = new THREE.BoxGeometry(1, 1, 1);
+            const turtleMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+            for (const id in turtles) {
+                const turtleData = turtles[id].status;
+                const turtleMesh = new THREE.Mesh(turtleGeometry, turtleMaterial);
+                turtleMesh.position.set(turtleData.x, turtleData.y, turtleData.z);
+                turtleObjects.add(turtleMesh);
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

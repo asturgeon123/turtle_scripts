@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Turtle C&C v2.5 - Home Command</title>
+    <style>
+        body { font-family: monospace; background-color: #1a1a1a; color: #f0f0f0; margin: 20px; }
+        .container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .turtle-card { border: 1px solid #444; border-radius: 5px; padding: 15px; background-color: #2a2a2a; min-width: 350px; }
+        .interface-section { background-color: #2a2a2a; border: 1px solid #444; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+        h1, h2 { color: #00ff7f; }
+        h3 { border-bottom: 1px solid #444; padding-bottom: 5px; }
+        label { display: block; margin-top: 10px; color: #ccc; }
+        input[type="text"], input[type="number"], input[type="submit"], select, button {
+            font-size: 1em; padding: 8px; margin-top: 5px;
+            background-color: #333; border: 1px solid #555; color: #f0f0f0; border-radius: 3px;
+        }
+        input[type="submit"], button { cursor: pointer; font-weight: bold; }
+        input[type="submit"] { background-color: #008f4f; }
+        input[type="submit"]:hover { background-color: #00ff7f; }
+        .clear-btn { background-color: #ff4d4d; }
+        .home-btn { background-color: #4d7cff; }
+        .status-grid { display: grid; grid-template-columns: auto 1fr; gap: 5px 10px; }
+        .command-queue { list-style-type: decimal; padding-left: 20px; max-height: 100px; overflow-y: auto; background: #111; padding: 10px; border-radius: 3px; }
+        hr { border-color: #444; margin: 20px 0; }
+        .button-group form { display: inline-block; margin-right: 10px; }
+        .nav-link { color: #00ff7f; text-decoration: none; margin-left: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Turtle C&C Server v2.5</h1>
+    <a href="/world" class="nav-link">View World</a>
+    <div class="interface-section">
+        <h2>Control Panel</h2>
+        <form method="post" action="/add_commands">
+            <h3>Queue Commands</h3>
+            <label for="turtle_id">Turtle ID:</label>
+            <input type="text" id="turtle_id" name="turtle_id" required>
+            <label for="commands">Commands (comma-separated):</label>
+            <input type="text" id="commands" name="commands" placeholder="e.g., home, goto 5 10 15, sethome 0 0 0 0" required>
+            <input type="submit" value="Queue Commands">
+        </form>
+    </div>
+    <h2>Managed Turtles</h2>
+    <div class="container">
+    {% for id, data in turtles.items() %}
+        <div class="turtle-card">
+            <h3>Turtle #{{ id }}</h3>
+            <dl class="status-grid">
+                <dt>Location:</dt>  <dd>X:{{ data.status.get('x', '?') }}, Y:{{ data.status.get('y', '?') }}, Z:{{ data.status.get('z', '?') }}</dd>
+                <dt>Direction:</dt> <dd>{{ DIRECTIONS.get(data.status.dir, 'Unknown') }} ({{ data.status.get('dir', '?') }})</dd>
+                <dt>Fuel:</dt>      <dd>{{ data.status.get('fuel', 'N/A') }}</dd>
+                <dt>Inventory:</dt> <dd>{{ data.status.get('inventory', {}) | tojson }}</dd>
+            </dl>
+            <h4>Command Queue:</h4>
+            <ul class="command-queue">
+            {% for cmd in data.queue %}
+                <li>{{ cmd }}</li>
+            {% else %}
+                <li>Empty</li>
+            {% endfor %}
+            </ul>
+            <div class="button-group" style="margin-top: 10px;">
+                <!-- MODIFIED: "Send Home" button added -->
+                <form method="post" action="/add_commands">
+                    <input type="hidden" name="turtle_id" value="{{ id }}">
+                    <input type="hidden" name="commands" value="home">
+                    <button type="submit" class="home-btn">Send Home</button>
+                </form>
+                <form method="post" action="/clear_queue">
+                    <input type="hidden" name="turtle_id" value="{{ id }}">
+                    <button type="submit" class="clear-btn">Clear Queue</button>
+                </form>
+            </div>
+        </div>
+    {% endfor %}
+    </div>
+</body>
+</html>
