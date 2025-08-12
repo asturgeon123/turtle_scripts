@@ -48,6 +48,7 @@
             <dl class="status-grid">
                 <dt>Location:</dt>  <dd>X:{{ data.status.get('x', '?') }}, Y:{{ data.status.get('y', '?') }}, Z:{{ data.status.get('z', '?') }}</dd>
                 <dt>Direction:</dt> <dd>{{ DIRECTIONS.get(data.status.dir, 'Unknown') }} ({{ data.status.get('dir', '?') }})</dd>
+                <dt>Equipment:</dt>      <dd>{{ data.status.get('equipment', 'N/A') }}</dd>
                 <dt>Fuel:</dt>      <dd>{{ data.status.get('fuel', 'N/A') }}</dd>
                 <dt>Inventory:</dt> <dd>{{ data.status.get('inventory', {}) | tojson }}</dd>
             </dl>

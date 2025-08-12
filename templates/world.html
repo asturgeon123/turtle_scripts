@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Turtle World</title>
+    <title>Turtle World - Correct Per-Instance Coloring</title>
     <style>
         body { margin: 0; background-color: #1a1a1a; }
         canvas { display: block; }
@@ -18,8 +18,13 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         let scene, camera, renderer, controls;
-        const turtleObjects = new THREE.Group();
-        const blockObjects = new THREE.Group();
+        let turtleInstancedMesh, blockInstancedMesh;
+        
+        const dummy = new THREE.Object3D();
+        const color = new THREE.Color();
+
+        // Set a high, safe limit for the number of instances
+        const MAX_INSTANCES = 50000;
 
         function init() {
             scene = new THREE.Scene();
@@ -33,20 +38,35 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            // --- Lights are not needed for MeshBasicMaterial but good for helpers ---
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
             scene.add(ambientLight);
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(50, 50, 50);
-            scene.add(directionalLight);
             
-            const gridHelper = new THREE.GridHelper(200, 200);
+            const gridHelper = new THREE.GridHelper(200, 200, 0x888888, 0x444444);
             scene.add(gridHelper);
 
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             
-            scene.add(turtleObjects);
-            scene.add(blockObjects);
+            // --- InstancedMesh Setup ---
+
+            // --- Turtles (Single Color) ---
+            const turtleGeometry = new THREE.BoxGeometry(1, 1, 1);
+            const turtleMaterial = new THREE.MeshBasicMaterial({ color: 0x0000FF });
+            turtleInstancedMesh = new THREE.InstancedMesh(turtleGeometry, turtleMaterial, MAX_INSTANCES);
+            scene.add(turtleInstancedMesh);
+
+            // --- Blocks (Multiple Colors) ---
+            const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+            // This material is now set up to receive color data from a buffer attribute.
+            const blockMaterial = new THREE.MeshBasicMaterial({
+                vertexColors: true, 
+                transparent: true, 
+                opacity: 0.8 
+            });
+            blockInstancedMesh = new THREE.InstancedMesh(blockGeometry, blockMaterial, MAX_INSTANCES);
+            scene.add(blockInstancedMesh);
+
 
             window.addEventListener('resize', onWindowResize, false);
 
@@ -68,58 +88,77 @@
 
         function fetchWorldData() {
             fetch('/world_data')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.json();
+                })
                 .then(data => {
-                    // LOG 1: See all the data received from the server
-                    console.log("Fetched Data:", data); 
-
-                    updateTurtles(data.turtles);
-                    updateBlocks(data.blocks);
-                });
+                    updateTurtles(data.turtles || {});
+                    updateBlocks(data.blocks || {});
+                })
+                .catch(e => console.error("Failed to fetch world data:", e));
             
-            // We will temporarily stop polling to make the log cleaner
-            // setTimeout(fetchWorldData, 5000); 
+             setTimeout(fetchWorldData, 5000); 
         }
 
         function updateBlocks(blocks) {
-            // LOG 2: See the blocks object being passed to this function
-            console.log("Updating blocks with:", blocks);
+            const blockIds = Object.keys(blocks);
+            const numInstances = Math.min(blockIds.length, MAX_INSTANCES);
+            
+            // Set the number of instances that should be rendered.
+            blockInstancedMesh.count = numInstances;
+            
+            // If there are no blocks, no need to proceed.
+            if (numInstances === 0) return;
 
-            blockObjects.clear();
-            const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
-            for (const id in blocks) {
+            // **THE FIX:** Create a fresh array to hold the RGB values for each instance.
+            const colorArray = new Float32Array(numInstances * 3);
+
+            let i = 0;
+            for (const id of blockIds) {
+                if (i >= numInstances) break;
                 const blockData = blocks[id];
-                // LOG 3: See each individual block's data as it's being rendered
-                console.log("Creating block at:", blockData.x, blockData.y, blockData.z); 
-
-                const blockMaterial = new THREE.MeshPhongMaterial({
-                    color: blockData.color || '#808080',
-                    transparent: true,
-                    opacity: 0.9
-                });
-                const blockMesh = new THREE.Mesh(blockGeometry, blockMaterial);
-                blockMesh.position.set(blockData.x, blockData.y, blockData.z);
                 
-                const edges = new THREE.EdgesGeometry(blockGeometry);
-                const lineMaterial = new THREE.LineBasicMaterial({ color: 0xf000000 });
-                const wireframe = new THREE.LineSegments(edges, lineMaterial);
-                wireframe.position.set(blockData.x, blockData.y, blockData.z);
-
-                blockObjects.add(blockMesh);
-                //blockObjects.add(wireframe);
+                // 1. Update the position matrix for this instance.
+                dummy.position.set(blockData.x, blockData.y, blockData.z);
+                dummy.updateMatrix();
+                blockInstancedMesh.setMatrixAt(i, dummy.matrix);
+                
+                // 2. Convert the hex color to RGB and place it in our color array.
+                color.set(blockData.color || '#808080');
+                color.toArray(colorArray, i * 3);
+                
+                i++;
             }
+
+            // 3. Tell Three.js that the instance matrix data has changed.
+            blockInstancedMesh.instanceMatrix.needsUpdate = true;
+
+            // 4. Create a new buffer attribute from our color array and attach it to the geometry.
+            // This is what the material uses to color each instance.
+            blockInstancedMesh.geometry.setAttribute('color', new THREE.InstancedBufferAttribute(colorArray, 3));
         }
 
         function updateTurtles(turtles) {
-            turtleObjects.clear();
-            const turtleGeometry = new THREE.BoxGeometry(1, 1, 1);
-            const turtleMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
-            for (const id in turtles) {
+            const turtleIds = Object.keys(turtles);
+            const numInstances = Math.min(turtleIds.length, MAX_INSTANCES);
+
+            turtleInstancedMesh.count = numInstances;
+            if (numInstances === 0) return;
+
+            let i = 0;
+            for (const id of turtleIds) {
+                 if (i >= numInstances) break;
                 const turtleData = turtles[id].status;
-                const turtleMesh = new THREE.Mesh(turtleGeometry, turtleMaterial);
-                turtleMesh.position.set(turtleData.x, turtleData.y, turtleData.z);
-                turtleObjects.add(turtleMesh);
+
+                dummy.position.set(turtleData.x, turtleData.y, turtleData.z);
+                dummy.updateMatrix();
+                turtleInstancedMesh.setMatrixAt(i, dummy.matrix);
+
+                i++;
             }
+
+            turtleInstancedMesh.instanceMatrix.needsUpdate = true;
         }
 
         init();

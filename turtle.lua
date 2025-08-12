@@ -10,6 +10,10 @@ local serverHost = "http://127.0.0.1:5000"
 local pollInterval = 5
 local idFilePath = ".turtle_id"
 local posFilePath = ".turtle_pos"
+
+-- World height constants for modern Minecraft
+local SCAN_TOP = 70 -- The highest buildable block is Y=319.
+local SCAN_BOTTOM = -63 -- The lowest buildable block/bedrock layer starts at Y=-64. [1]
 -----------------------------------------------------------------
 
 local turtleId = 0
@@ -43,6 +47,20 @@ function savePosition()
     local file = fs.open(posFilePath, "w"); if file then file.write(textutils.serializeJSON(position)); file.close() end
 end
 
+function getGPSPos()
+    local x, y, z = gps.locate()
+    local direction = 1
+
+    if x and y and z then
+       setpos(x, y, z, 0)
+       return true
+   else
+       return false
+   end
+end
+
+
+
 function loadPosition()
     if fs.exists(posFilePath) then
         local file = fs.open(posFilePath, "r"); local data = file.readAll(); file.close()
@@ -50,19 +68,30 @@ function loadPosition()
         if decoded and decoded.x and decoded.dir then
             position = decoded
             print(string.format("Loaded position: X:%d, Y:%d, Z:%d, Dir:%d", position.x, position.y, position.z, position.dir))
-            return
+            return true
         end
     end
     position = { x = 0, y = 0, z = 0, dir = 0 }
     savePosition()
+    return false
 end
 
 function loadId()
     if fs.exists(idFilePath) then
-        local file = fs.open(idFilePath, "r"); turtleId = file.readAll(); file.close()
-        return turtleId ~= nil
+        local file = fs.open(idFilePath, "r")
+        local idString = file.readAll()
+        file.close()
+
+        -- Convert the read string to a number
+        local idNumber = tonumber(idString)
+
+        -- Check if conversion was successful and it's a valid ID
+        if idNumber and idNumber > 0 then
+            turtleId = idNumber
+            return true -- Success!
+        end
     end
-    return false
+    return false -- Failed to load a valid ID
 end
 
 function registerWithServer()
@@ -87,7 +116,8 @@ end
 function getStatus()
     local inventory = {}; for i=1,16 do local item = turtle.getItemDetail(i); if item then inventory[item.name] = (inventory[item.name] or 0) + item.count end end
     turtle.refuel()
-    return { x = position.x, y = position.y, z = position.z, dir = position.dir, fuel = turtle.getFuelLevel(), inventory = inventory, }
+    local equipment = {turtle.getEquippedLeft()['name'], turtle.getEquippedRight()['name']}
+    return { x = position.x, y = position.y, z = position.z, dir = position.dir, fuel = turtle.getFuelLevel(), inventory = inventory, equipment=equipment}
 end
 
 function reportStatus() httpPost(serverHost .. "/update/" .. turtleId, getStatus()) end
@@ -152,6 +182,57 @@ function scanEnvironment()
     print("Scan complete. Sending data to server...")
     httpPost(serverHost .. "/scan_report/" .. turtleId, {blocks = blocksData})
     os.sleep(0.5) -- Give the server a moment
+    return true
+end
+
+function scanChunk()
+    print("Starting chunk scan.")
+
+    -- Calculate the center of the current chunk
+    local chunkX = math.floor(position.x / 16)
+    local chunkZ = math.floor(position.z / 16)
+    local centerX = chunkX * 16 + 7
+    local centerZ = chunkZ * 16 + 7
+
+    print("Navigating to chunk center: X:"..centerX..", Z:"..centerZ)
+    if not goto(centerX, position.y, centerZ) then
+        print("Failed to navigate to chunk center. Aborting scan.")
+        return false
+    end
+
+    -- Descend to the bottom of the world
+    print("Moving to bedrock level (Y:"..SCAN_BOTTOM..")...")
+    while position.y > SCAN_BOTTOM do
+        if turtle.detectDown() then
+            -- Try to dig, but stop if it's unbreakable (like bedrock)
+            if not turtle.digDown() then
+                print("Cannot dig down. Reached unbreakable block.")
+                break
+            end
+        end
+        if not move("down") then
+            print("Failed to move down. Aborting scan.")
+            return false
+        end
+    end
+    print("Reached bottom scan level.")
+
+    -- Ascend to the top of the world
+    print("Ascending to world height (Y:"..SCAN_TOP..")...")
+    while position.y < SCAN_TOP do
+        if turtle.detectUp() then
+            if not turtle.digUp() then
+                print("Cannot dig up. Aborting scan.")
+                return false
+            end
+        end
+        if not move("up") then
+            print("Failed to move up. Aborting scan.")
+            return false
+        end
+    end
+
+    print("Chunk scan complete. Returned to world height.")
     return true
 end
 
@@ -259,32 +340,55 @@ function executeCommand(cmd)
     elseif commandName == "turnRight" then return turn(turtle.turnRight)
     elseif commandName == "faceDirection" then return faceDirection(table.unpack(args))
     elseif turtle[commandName] and type(turtle[commandName]) == "function" then return turtle[commandName]()
+    elseif commandName == "scanChunk" then return scanChunk()
     else print("Unknown command: " .. cmd); return false end
 end
 
 -- MAIN LOGIC -------------------------------------------------
 
 function startSequence()
-    loadPosition()
+    print("Initializing...")
 
+    -- 1. Attempt to load ID from local file
     if loadId() then
-        syncPositionWithServer()
+        print("Successfully loaded Turtle ID: " .. turtleId)
     else
-        while not registerWithServer() do os.sleep(5) end
+        -- 2. If loading fails, register with the server
+        print("No local ID found. Attempting to register with server...")
+        while not registerWithServer() do
+            print("Registration failed. Retrying in 5 seconds...")
+            os.sleep(5)
+        end
+        print("Successfully registered. New Turtle ID: " .. turtleId)
     end
 
+    -- 3. Determine starting position (GPS > Local File > Server)
+    if getGPSPos() then
+        print("Position acquired via GPS.")
+    elseif loadPosition() then
+        -- Use a more informative print message
+        print(string.format("Loaded position from file: X:%d, Y:%d, Z:%d, Dir:%d", position.x, position.y, position.z, position.dir))
+    else
+        print("No local position found. Syncing with server...")
+        syncPositionWithServer()
+    end
+
+    -- 4. Set initial home position and report status
+    sethome(position.x, position.y, position.z, position.dir)
+    print("Ready. Reporting status to server.")
     reportStatus()
 end
 
-
+-- START THE TURTLE
+startSequence()
 
 while true do
     print("Polling...")
     local response = httpPost(serverHost .. "/poll/" .. turtleId, getStatus())
 
-    if response.error == "re-register" then
+    if response and response.error == "re-register" then
         print("Server error: re-register. Deleting local ID file.")
-        fs.delete(".turtle_id") -- Deletes the .turtle_id file
+        fs.delete(idFilePath) -- Deletes the .turtle_id file
         startSequence()
     end
 
