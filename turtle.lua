@@ -10,7 +10,7 @@ C&C Client v2.6
 ]]
 
 -- CONFIGURATION ------------------------------------------------
-local serverHost = "http://127.0.0.1:5000"
+local serverHost = "http://192.168.1.71:5000"
 local pollInterval = 5
 local idFilePath = ".turtle_id"
 local posFilePath = ".turtle_pos"

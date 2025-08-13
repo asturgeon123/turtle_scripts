@@ -14,7 +14,7 @@ SETUP:
 
 -- ========== CONFIGURATION ==========
 -- The address of your Python Flask server.
-local serverAddress = "http://127.0.0.1:5000" -- IMPORTANT: Change this!
+local serverAddress = "http://192.168.1.71:5000" -- IMPORTANT: Change this!
 
 -- The side the Chat Box peripheral is on (e.g., "top", "bottom", "left", "right", "front", "back")
 local chatBoxSide = "left" -- IMPORTANT: Change this to the correct side!
