@@ -27,6 +27,7 @@ local CHEST_NAMES = {'minecraft:chest', 'minecraft:ender_chest', enderChestName}
 -- You can add or remove items here (e.g., fuel).
 local essentialItems = {
     ["computercraft:wireless_modem_normal"] = true,
+    ["computercraft:wireless_modem_advanced"] = true,
     ["minecraft:diamond_pickaxe"] = true,
     ["advancedperipherals:geo_scanner"] = true,
     ["minecraft:ender_chest"] = true,
@@ -302,7 +303,9 @@ end
 function getGPSPos()
     --- Determines direction by moving into an open block to see how the position changed. Sets the intial position
 
-    equipItem("computercraft:wireless_modem_normal")
+    
+    equipItem("computercraft:wireless_modem_advanced")
+    
 
     local start_x, start_y, start_z = gps.locate()
     local direction = nil

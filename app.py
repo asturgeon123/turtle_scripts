@@ -1,11 +1,16 @@
 from flask import Flask, request, jsonify, render_template, redirect, url_for
+from flask_cors import CORS
+
+
 import numpy as np
 import math
-from pathfinding3d.core.diagonal_movement import DiagonalMovement
 from pathfinding3d.core.grid import Grid
 from pathfinding3d.finder.a_star import AStarFinder
 
+
+
 app = Flask(__name__)
+CORS(app)
 
 # --- Data Storage ---
 turtles = {}
@@ -16,6 +21,16 @@ world_blocks = np.empty((0, 3), dtype=int)
 # Storing non-numerical block data (name, color) in a separate dictionary,
 # keyed by a coordinate string for easy lookup.
 block_info = {}
+
+
+# Add any block name (e.g., "minecraft:lava", "minecraft:oak_log") to this set.
+AVOID_BLOCK_NAMES = {
+    "minecraft:bedrock",
+    "minecraft:cobblestone",
+    "minecraft:oak_planks",
+    "minecraft:oak_stairs"
+    "minecraft:oak_log",
+}
 
 # --- Constants ---
 DIRECTIONS = {
@@ -62,18 +77,20 @@ def get_best_turtle():
 
 def get_block_properties(block_name):
     """Returns the color and pathfinding cost for a given block name."""
+    
+    if block_name in AVOID_BLOCK_NAMES:
+        return "#eb3434", 0 # Cost 0 is impassable
+
     if 'grass' in block_name:
-        return "#55a630", 5  # Cost to dig
+        return "#55a630", 5
     elif 'ore' in block_name:
-        return "#37eb34", 10 # Higher cost for valuable ores
+        return "#37eb34", 10
     elif 'dirt' in block_name:
         return "#967969", 5
     elif 'stone' in block_name:
         return "#808080", 8
-    elif 'lava' in block_name:
-        return "#eb3434", 0  # Impassable (cost 0 in pathfinding3d library)
     else:
-        return "#808080", 1  # Default to air/walkable
+        return "#808080", 1
 
 def translate_path_to_waypoint_commands(path):
     """
@@ -521,5 +538,5 @@ def clear_queue():
         turtles[turtle_id]['queue'] = []
     return redirect(url_for('index'))
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+if __name__ == '__main__': 
+    app.run(host='0.0.0.0', port=5000)
