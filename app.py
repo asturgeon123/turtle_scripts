@@ -516,7 +516,17 @@ def add_commands():
                     turtles[turtle_id]['queue'].append(f"mine {dest_x} {dest_y} {dest_z}")
                 else:
                     print(f"No blocks of type {block_name} found for turtle {turtle_id}")
+                    
+            
+            elif cmd_type == "mineall" and len(parts) > 1:
+                print("WE ARE MINING ALLLLLLL")
+                block_name = parts[1]
 
+                status = turtles[turtle_id]['status']
+                start_x, start_y, start_z = status['x'], status['y'], status['z']
+
+                return find_and_mine_all(turtle_id, block_name)
+        
             elif cmd_type == "goto" and len(parts) == 4:
                 # Handle direct goto commands as before
                 status = turtles[turtle_id]['status']
